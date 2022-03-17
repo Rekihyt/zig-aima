@@ -34,7 +34,12 @@ pub fn build(b: *std.build.Builder) void {
     digraph_tests.setTarget(target);
     digraph_tests.setBuildMode(mode);
 
+    const graph_tests = b.addTest("src/graph.zig");
+    graph_tests.setTarget(target);
+    graph_tests.setBuildMode(mode);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
     test_step.dependOn(&digraph_tests.step);
+    test_step.dependOn(&graph_tests.step);
 }
