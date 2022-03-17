@@ -59,11 +59,9 @@ pub fn Graph(comptime Val: type, comptime Weight: type) type {
         pub fn deinit(self: *Self) void {
             // Free nodes' inner memory first.
             for (self.nodes.items) |*node| {
-                // print("{*}\n", .{node});
                 // Free list of edges
                 node.edges.deinit();
             }
-            print("{any}\n", .{self.nodes.items});
             self.nodes.deinit();
         }
     };
@@ -71,9 +69,8 @@ pub fn Graph(comptime Val: type, comptime Weight: type) type {
 
 test "graph memory management" {
     const allocator = std.testing.allocator;
-    const GraphU8U32 = Graph([]const u8, u32);
 
-    var graph = GraphU8U32.init(allocator);
+    var graph = Graph([]const u8, u32).init(allocator);
     defer graph.deinit();
 
     var node1 = try graph.add("asd");
@@ -82,12 +79,15 @@ test "graph memory management" {
     try node1.edges.put(node2, 123);
 }
 
-// test "node memory management" {
-//     const GraphU8U32 = Graph([]const u8, u32);
-//     const Node = GraphU8U32.Node;
+test "simple cycle" {
+    const allocator = std.testing.allocator;
 
-//     var node1 = Node.create();
-//     defer node1 = Node.destroy();
-//     var node2 = Node.create();
-//     defer node2 = Node.destroy();
-// }
+    var graph = Graph([]const u8, u32).init(allocator);
+    defer graph.deinit();
+
+    var node1 = try graph.add("asd");
+    var node2 = try graph.add("asd2");
+
+    try node1.edges.put(node2, 123);
+    try node2.edges.put(node1, 123);
+}
