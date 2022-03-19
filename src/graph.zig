@@ -64,10 +64,12 @@ pub fn Graph(comptime Value: type, comptime Weight: type) type {
         /// Free the memory backing this node, and remove it from the graph.
         /// TODO: delete all edges as well
         pub fn deinit(self: *Self) void {
-            // Free nodes' inner memory first.
+            // Free each node's inner memory first.
             for (self.nodes.items) |node| {
                 // Free list of edges
                 node.edges.deinit();
+                // Free the node itself
+                self.allocator.destroy(node);
             }
             self.nodes.deinit();
         }
