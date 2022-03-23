@@ -20,6 +20,7 @@ const print = std.debug.print;
 pub fn Graph(comptime Value: type, comptime Weight: type) type {
     return struct {
         pub const Self = @This();
+
         const Node = struct {
             value: Value,
 
@@ -32,7 +33,16 @@ pub fn Graph(comptime Value: type, comptime Weight: type) type {
                 try other.edges.put(self, weight);
             }
 
-            // TODO: remove edge
+            // TODO: remove edge fn
+        };
+
+        /// An edges between two node pointers. Isn't used by Nodes to store
+        /// their edges (a hashmap is used instead) but rather when enumerating
+        /// all edges in the graph.
+        pub const Edge = struct {
+            this: *Node,
+            that: *Node,
+            weight: Weight,
         };
 
         allocator: Allocator,
@@ -62,16 +72,47 @@ pub fn Graph(comptime Value: type, comptime Weight: type) type {
         // TODO: removeNode
 
         /// Free the memory backing this node, and remove it from the graph.
-        /// TODO: delete all edges as well
         pub fn deinit(self: *Self) void {
             // Free each node's inner memory first.
             for (self.nodes.items) |node| {
-                // Free list of edges
+                // Free the list of edges
                 node.edges.deinit();
-                // Free the node itself
+                // Then free the node itself
                 self.allocator.destroy(node);
             }
             self.nodes.deinit();
+        }
+
+        /// Returns a set of all edges in this graph.
+        /// Caller frees (calls `deinit`).
+        pub fn edges(
+            self: Self,
+            allocator: Allocator,
+        ) AutoHashMap(*Node, void) {
+            // Use a 0 size value (void) to use a hashmap as a set, in order
+            // to avoid listing edges twice.
+            var edge_set = AutoHashMap(Edge, void).init(allocator);
+            for (self.nodes.items) |node| {
+                var edge_iter = node.edges.iterator();
+                while (edge_iter.next()) |edge_entry| {
+                    edge_set.put(Edge{
+                        .this = node,
+                        .that = edge_entry.key,
+                        .weight = edge_entry.value,
+                    });
+                }
+            }
+        }
+
+        /// Writes the graph out in dot (graphviz) to the given `writer`.
+        pub fn exportDot(self: Self, writer: anytype) !void {
+            writer.write("DiGraph {\n");
+            defer writer.write("}\n");
+
+            _ = self.nodes.iterator();
+
+            writer.print("{}\n", .{});
+            writer.print("{} -> {}\n", .{});
         }
     };
 }
@@ -103,4 +144,18 @@ test "simple cycle" {
 
     try node1.addEdge(node2, 123);
     try node2.addEdge(node1, 123);
+}
+
+test "edges" {
+    const allocator = std.testing.allocator;
+
+    var graph = Graph([]const u8, u32).init(allocator);
+    defer graph.deinit();
+
+    var node1 = try graph.addNode("asd");
+    var node2 = try graph.addNode("asd2");
+
+    try node1.addEdge(node2, 123);
+
+    for (graph.edges(std.testing.allocator)) |edge| {}
 }
