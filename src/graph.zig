@@ -47,7 +47,8 @@ pub fn Graph(comptime Value: type, comptime Weight: type) type {
 
         allocator: Allocator,
 
-        /// Keeps track of the nodes allocated
+        /// Keeps track of the nodes allocated. This stores pointers returned
+        /// by calls to `create(Node)`.
         nodes: ArrayList(*Node),
 
         pub fn init(allocator: Allocator) Self {
@@ -108,15 +109,46 @@ pub fn Graph(comptime Value: type, comptime Weight: type) type {
             return edge_set;
         }
 
+        /// Pass into `exportDot` to configure dot output.
+        pub const DotSettings = struct {
+            // graph_setting: ?String = null,
+            // node_setting: ?String = null,
+            // edge_setting: ?String = null,
+        };
+
         /// Writes the graph out in dot (graphviz) to the given `writer`.
-        pub fn exportDot(self: Self, writer: anytype) !void {
-            writer.write("DiGraph {\n");
-            defer writer.write("}\n");
+        /// Node value types currently must be `[]const u8`.
+        pub fn exportDot(
+            self: Self,
+            writer: anytype,
+            dot_settings: DotSettings,
+        ) !void {
+            _ = dot_settings;
+            try writer.writeAll("DiGraph {\n");
 
-            _ = self.nodes.iterator();
+            for (self.nodes.items) |node| {
+                try writer.print(
+                    "{s} [];\n",
+                    .{node.value},
+                );
+            }
 
-            writer.print("{}\n", .{});
-            writer.print("{} -> {}\n", .{});
+            var edge_set = try self.edges(self.allocator);
+            defer edge_set.deinit();
+
+            var edge_iter = edge_set.keyIterator();
+            while (edge_iter.next()) |edge| {
+                try writer.print(
+                    "{s} -- {s} [label={}];\n",
+                    .{
+                        edge.this.value,
+                        edge.that.value,
+                        edge.weight,
+                    },
+                );
+            }
+
+            try writer.writeAll("}\n");
         }
     };
 }
@@ -131,14 +163,13 @@ test "graph memory management" {
     var graph = Graph([]const u8, u32).init(allocator);
     defer graph.deinit();
 
-    var node1 = try graph.addNode("asd");
-    var node2 = try graph.addNode("asd2");
+    var node1 = try graph.addNode("n1");
+    var node2 = try graph.addNode("n2");
 
     try node1.addEdge(node2, 123);
 }
 
 test "iterate over edges" {
-    std.testing.log_level = .debug;
     const allocator = std.testing.allocator;
 
     var graph = Graph([]const u8, u32).init(allocator);
@@ -151,6 +182,7 @@ test "iterate over edges" {
     // Allocate the current edges
     var edges = try graph.edges(allocator);
     defer edges.deinit();
+    // The hashmap is used as a set, so it only has keys
     var edge_iter = edges.keyIterator();
 
     // Print their nodes' values and the weights between them
@@ -161,4 +193,18 @@ test "iterate over edges" {
             edge.that.value,
         });
     }
+}
+
+test "dot export" {
+    std.testing.log_level = .debug;
+    const allocator = std.testing.allocator;
+
+    var graph = Graph([]const u8, u32).init(allocator);
+    defer graph.deinit();
+
+    var node1 = try graph.addNode("n1");
+    var node2 = try graph.addNode("n2");
+    try node1.addEdge(node2, 123);
+
+    _ = try graph.exportDot(std.io.getStdOut().writer(), .{});
 }
