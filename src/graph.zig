@@ -88,20 +88,24 @@ pub fn Graph(comptime Value: type, comptime Weight: type) type {
         pub fn edges(
             self: Self,
             allocator: Allocator,
-        ) AutoHashMap(*Node, void) {
+        ) !AutoHashMap(Edge, void) {
             // Use a 0 size value (void) to use a hashmap as a set, in order
             // to avoid listing edges twice.
             var edge_set = AutoHashMap(Edge, void).init(allocator);
             for (self.nodes.items) |node| {
                 var edge_iter = node.edges.iterator();
                 while (edge_iter.next()) |edge_entry| {
-                    edge_set.put(Edge{
-                        .this = node,
-                        .that = edge_entry.key,
-                        .weight = edge_entry.value,
-                    });
+                    try edge_set.put(
+                        Edge{
+                            .this = node,
+                            .that = edge_entry.key_ptr.*,
+                            .weight = edge_entry.value_ptr.*,
+                        },
+                        {}, // The 0 size "value"
+                    );
                 }
             }
+            return edge_set;
         }
 
         /// Writes the graph out in dot (graphviz) to the given `writer`.
@@ -133,29 +137,28 @@ test "graph memory management" {
     try node1.addEdge(node2, 123);
 }
 
-test "simple cycle" {
+test "iterate over edges" {
+    std.testing.log_level = .debug;
     const allocator = std.testing.allocator;
 
     var graph = Graph([]const u8, u32).init(allocator);
     defer graph.deinit();
 
-    var node1 = try graph.addNode("asd");
-    var node2 = try graph.addNode("asd2");
+    var node1 = try graph.addNode("n1");
+    var node2 = try graph.addNode("n2");
 
     try node1.addEdge(node2, 123);
-    try node2.addEdge(node1, 123);
-}
+    // Allocate the current edges
+    var edges = try graph.edges(allocator);
+    defer edges.deinit();
+    var edge_iter = edges.keyIterator();
 
-test "edges" {
-    const allocator = std.testing.allocator;
-
-    var graph = Graph([]const u8, u32).init(allocator);
-    defer graph.deinit();
-
-    var node1 = try graph.addNode("asd");
-    var node2 = try graph.addNode("asd2");
-
-    try node1.addEdge(node2, 123);
-
-    for (graph.edges(std.testing.allocator)) |edge| {}
+    // Print their nodes' values and the weights between them
+    while (edge_iter.next()) |edge| {
+        print("({s})--[{}]--({s})\n", .{
+            edge.this.value,
+            edge.weight,
+            edge.that.value,
+        });
+    }
 }
