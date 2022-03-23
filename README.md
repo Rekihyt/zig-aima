@@ -2,7 +2,9 @@
 
 Implementation of some of the basic structures used in AIMA.
 
-## Under Construction
+## Undirected Graph
+- basic functions, add/free
+- dot export
+- simple tests
 
-- Undirected Graph
-- Directed Graph
+## Directed Graph
