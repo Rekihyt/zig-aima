@@ -59,53 +59,83 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
 
         /// Returns a set of all nodes in this graph.
         /// Caller frees (calls `deinit`).
+        // Node pointers must be used because HashMaps don't allow structs
+        // containing slices.
         pub fn nodes(
-            self: Self,
+            self: *const Self,
             allocator: Allocator,
-        ) !AutoHashMap(Self, void) {
-            var node_set = AutoHashMap(Self, void).init(allocator);
+        ) !AutoHashMap(*const Self, void) {
+            var node_set = AutoHashMap(*const Self, void).init(allocator);
             // A stack to add nodes reached across edges
-            var to_visit = ArrayList(Self).init(allocator);
+            var to_visit = ArrayList(*const Self).init(allocator);
             defer to_visit.deinit();
 
             // Greedily add all neighbors to `to_visit`, then loop until
             // no new neighbors are found.
             try to_visit.append(self);
-            while (to_visit.popOrNull()) |node| {
+            while (to_visit.popOrNull()) |node_ptr| {
                 // If the node is unvisited
-                if (!node_set.contains(node)) {
+                if (!node_set.contains(node_ptr)) {
                     // Add to set (marks as visited)
-                    try node_set.put(node, {});
-                    // For each adjacent node
+                    try node_set.put(node_ptr, {});
+                    // Save adjacent nodes to check later
                     var adjacents = self.edges.keyIterator();
-                    while (adjacents.next()) |adjacent| {
-                        // Save its adjacent nodes to check later
-                        var adjacents_to_visit = adjacent.*.edges.keyIterator();
-                        _ = try helpers.appendIter(
-                            to_visit,
-                            adjacents_to_visit,
-                        );
+                    while (adjacents.next()) |adjacent_ptr| {
+                        try to_visit.append(adjacent_ptr.*);
+                    }
+                }
+            }
+            return node_set;
+        }
+        /// Returns a set of all node pointers in this graph.
+        /// If you don't need to mutate any nodes, call `nodes` instead.
+        /// Caller frees (calls `deinit`).
+        pub fn node_ptrs(
+            self: *Self,
+            allocator: Allocator,
+        ) !AutoHashMap(*Self, void) {
+            var node_set = AutoHashMap(*Self, void).init(allocator);
+            // A stack to add nodes reached across edges
+            var to_visit = ArrayList(*Self).init(allocator);
+            defer to_visit.deinit();
+
+            // Greedily add all neighbors to `to_visit`, then loop until
+            // no new neighbors are found.
+            try to_visit.append(self);
+            while (to_visit.popOrNull()) |node_ptr| {
+                // If the node is unvisited
+                if (!node_set.contains(node_ptr)) {
+                    // Add to set (marks as visited)
+                    try node_set.put(node_ptr, {});
+                    // Save adjacent nodes to check later
+                    var adjacents = self.edges.keyIterator();
+                    while (adjacents.next()) |adjacent_ptr| {
+                        try to_visit.append(adjacent_ptr.*);
                     }
                 }
             }
             return node_set;
         }
 
-        /// Returns a set of all edges in this graph.
+        /// Returns a set of all edge pointers in this graph.
         /// Caller frees (calls `deinit`).
+        // Edge pointers must be used because HashMaps don't allow structs
+        // containing slices.
         pub fn edgeSet(
-            self: Self,
+            self: *Self,
             allocator: Allocator,
         ) !AutoHashMap(Edge, void) {
             // Use a 0 size value (void) to use a hashmap as a set, in order
             // to avoid listing edges twice.
-            var edge_set = AutoHashMap(Edge, void).init(allocator);
-            for (self.nodes(allocator).items) |node| {
-                var edge_iter = node.edges.iterator();
+            var edge_set = AutoHashMap(*Edge, void).init(allocator);
+            const node_set = try self.node_ptrs(allocator);
+            var nodes_iter = node_set.keyIterator();
+            while (nodes_iter.next()) |node_ptr| {
+                var edge_iter = node_ptr.*.edges.iterator();
                 while (edge_iter.next()) |edge_entry| {
                     try edge_set.put(
                         Edge{
-                            .this = node,
+                            .this = node_ptr.*,
                             .that = edge_entry.key_ptr.*,
                             .weight = edge_entry.value_ptr.*,
                         },
@@ -135,21 +165,23 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         /// Writes the graph out in dot (graphviz) to the given `writer`.
         /// Node value types currently must be `[]const u8`.
         pub fn exportDot(
-            self: Self,
+            self: *Self,
+            allocator: Allocator,
             writer: anytype,
             dot_settings: DotSettings,
         ) !void {
             _ = dot_settings;
             try writer.writeAll("DiGraph {\n");
 
-            for (self.nodes.items()) |node| {
+            var nodes_iter = (try self.nodes(allocator)).keyIterator();
+            while (nodes_iter.next()) |node_ptr| {
                 try writer.print(
                     "{s} [];\n",
-                    .{node.value},
+                    .{node_ptr.*.value},
                 );
             }
 
-            var edge_set = try self.edges(self.allocator);
+            var edge_set = try self.edgeSet(self.allocator);
             defer edge_set.deinit();
 
             var edge_iter = edge_set.keyIterator();
@@ -191,14 +223,14 @@ test "iterate over single node" {
 
     var node1 = try Node([]const u8, u32).create(allocator, "n1");
     defer node1.destroy();
-    var node_iter = (try node1.nodes(allocator)).keyIterator();
 
+    var edge_iter = (try node1.edgeSet(allocator)).keyIterator();
     // Print nodes' values
-    while (node_iter) |adjacent| {
+    while (edge_iter.next()) |edge_ptr| {
         print("({s})--[{}]--({s})\n", .{
-            adjacent.this.value,
-            adjacent.weight,
-            adjacent.that.value,
+            edge_ptr.this.value,
+            edge_ptr.weight,
+            edge_ptr.that.value,
         });
     }
 }
@@ -238,5 +270,5 @@ test "dot export" {
 
     try node1.addEdge(node2, 123);
 
-    _ = try node1.exportDot(std.io.getStdOut().writer(), .{});
+    _ = try node1.exportDot(allocator, std.io.getStdOut().writer(), .{});
 }

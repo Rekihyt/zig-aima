@@ -7,7 +7,7 @@ const std = @import("std");
 pub fn appendIter(list: anytype, iter: anytype) !usize {
     var count: usize = 0;
     while (iter.next()) |element| {
-        try list.append(element);
+        try list.append(element.*);
         count += 1;
     }
     return count;
