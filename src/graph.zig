@@ -3,7 +3,7 @@ const ArrayList = std.ArrayList;
 const AutoHashMap = std.AutoHashMap;
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;
-const helpers = @import("helpers");
+const helpers = @import("helpers.zig");
 
 /// `Value` is the type of data to be stored in `Node`s, with copy semantics.
 /// `Weight` is the type of weights or costs between `Node`s. Weights are
@@ -19,14 +19,15 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         /// Individual edges are stored twice, once in each node in a pair
         /// that form the edge. These are separate from `Edge` structs, which
         /// keep track of pairs of nodes.
-        edges: AutoHashMap(*Node, Weight),
+        edges: AutoHashMap(*Self, Weight),
 
         /// Creates a new node, allocating a copy of Value.
-        pub fn init(allocator: Allocator, value: Value) !*Node {
-            var node = try allocator.create(Node);
-            node.* = Node{
+        pub fn create(allocator: Allocator, value: Value) !*Self {
+            var node = try allocator.create(Self);
+            node.* = Self{
+                .allocator = allocator,
                 .value = value,
-                .edges = AutoHashMap(*Node, Weight).init(self.allocator),
+                .edges = AutoHashMap(*Self, Weight).init(allocator),
             };
             return node;
         }
@@ -34,21 +35,25 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         // TODO: removeNode
 
         /// Free the memory backing this node, and remove it from the graph.
-        pub fn deinit(self: *Self) void {
+        pub fn destroy(self: *Self) void {
+            var adjacents = self.edges.keyIterator();
             // Free each reference to this node in adjacents.
-            for (self.edges.keyIterator) |adjacent| {
-                adjacent.edges.remove(self);
+            while (adjacents.next()) |adjacent| {
+                print("\n\nremoved: {}\n\n", .{adjacent.*.edges.remove(self)});
+                // adjacent.*.allocator.destroy(adjacent);
             }
             // Free the list of edges
-            node.edges.deinit();
+            self.edges.deinit();
+            // Free this node
+            self.allocator.destroy(self);
         }
 
         /// An edges between two node pointers. Isn't used by Nodes to store
         /// their edges (a hashmap is used instead) but rather when enumerating
         /// all edges in the graph.
         pub const Edge = struct {
-            this: *Node,
-            that: *Node,
+            this: *Self,
+            that: *Self,
             weight: Weight,
         };
 
@@ -57,23 +62,29 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         pub fn nodes(
             self: Self,
             allocator: Allocator,
-        ) !AutoHashMap(Edge, void) {
-            var node_set = AutoHashMap(*Node, void).init(allocator);
+        ) !AutoHashMap(Self, void) {
+            var node_set = AutoHashMap(Self, void).init(allocator);
             // A stack to add nodes reached across edges
-            var to_visit = ArrayList(*Node).init(allocator);
+            var to_visit = ArrayList(Self).init(allocator);
             defer to_visit.deinit();
 
             // Greedily add all neighbors to `to_visit`, then loop until
             // no new neighbors are found.
-            try to_visit.add(self);
+            try to_visit.append(self);
             while (to_visit.popOrNull()) |node| {
                 // If the node is unvisited
                 if (!node_set.contains(node)) {
                     // Add to set (marks as visited)
-                    node_set.put(node);
-                    // Save its adjacent nodes to check later
-                    for (self.edges.keyIterator) |adjacent| {
-                        _ = helpers.appendIter(to_visit, that.edges.iter());
+                    try node_set.put(node, {});
+                    // For each adjacent node
+                    var adjacents = self.edges.keyIterator();
+                    while (adjacents.next()) |adjacent| {
+                        // Save its adjacent nodes to check later
+                        var adjacents_to_visit = adjacent.*.edges.keyIterator();
+                        _ = try helpers.appendIter(
+                            to_visit,
+                            adjacents_to_visit,
+                        );
                     }
                 }
             }
@@ -82,14 +93,14 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
 
         /// Returns a set of all edges in this graph.
         /// Caller frees (calls `deinit`).
-        pub fn edges(
+        pub fn edgeSet(
             self: Self,
             allocator: Allocator,
         ) !AutoHashMap(Edge, void) {
             // Use a 0 size value (void) to use a hashmap as a set, in order
             // to avoid listing edges twice.
             var edge_set = AutoHashMap(Edge, void).init(allocator);
-            for (self.nodes.items) |node| {
+            for (self.nodes(allocator).items) |node| {
                 var edge_iter = node.edges.iterator();
                 while (edge_iter.next()) |edge_entry| {
                     try edge_set.put(
@@ -131,7 +142,7 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             _ = dot_settings;
             try writer.writeAll("DiGraph {\n");
 
-            for (self.nodes.items) |node| {
+            for (self.nodes.items()) |node| {
                 try writer.print(
                     "{s} [];\n",
                     .{node.value},
@@ -163,13 +174,14 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
 // - inside add: allocator succeeds but list append fails
 
 test "graph memory management" {
+    std.testing.log_level = .debug;
     const allocator = std.testing.allocator;
 
-    var node = Node([]const u8, u32).init(allocator);
-    defer node.deinit();
+    var node1 = try Node([]const u8, u32).create(allocator, "n1");
+    defer node1.destroy();
 
-    var node1 = try node.init("n1");
-    var node2 = try node.init("n2");
+    var node2 = try Node([]const u8, u32).create(allocator, "n2");
+    defer node2.destroy();
 
     try node1.addEdge(node2, 123);
 }
@@ -177,17 +189,16 @@ test "graph memory management" {
 test "iterate over single node" {
     const allocator = std.testing.allocator;
 
-    var node1 = Node([]const u8, u32).init(allocator);
-    defer node1.deinit();
-
-    var node1 = try node.init("n1");
+    var node1 = try Node([]const u8, u32).create(allocator, "n1");
+    defer node1.destroy();
+    var node_iter = (try node1.nodes(allocator)).keyIterator();
 
     // Print nodes' values
-    while (node1.nodes()) |edge| {
+    while (node_iter) |adjacent| {
         print("({s})--[{}]--({s})\n", .{
-            edge.this.value,
-            edge.weight,
-            edge.that.value,
+            adjacent.this.value,
+            adjacent.weight,
+            adjacent.that.value,
         });
     }
 }
@@ -195,15 +206,14 @@ test "iterate over single node" {
 test "iterate over edges" {
     const allocator = std.testing.allocator;
 
-    var node = Node([]const u8, u32).init(allocator);
-    defer node.deinit();
-
-    var node1 = try node.init("n1");
-    var node2 = try node.init("n2");
+    var node1 = try Node([]const u8, u32).create(allocator, "n1");
+    defer node1.destroy();
+    var node2 = try Node([]const u8, u32).create(allocator, "n2");
+    defer node2.destroy();
 
     try node1.addEdge(node2, 123);
     // Allocate the current edges
-    var edges = try node.edges(allocator);
+    var edges = try node1.edgeSet(allocator);
     defer edges.deinit();
     // The hashmap is used as a set, so it only has keys
     var edge_iter = edges.keyIterator();
@@ -219,15 +229,14 @@ test "iterate over edges" {
 }
 
 test "dot export" {
-    std.testing.log_level = .debug;
     const allocator = std.testing.allocator;
 
-    var node = Node([]const u8, u32).init(allocator);
-    defer node.deinit();
+    var node1 = try Node([]const u8, u32).create(allocator, "n1");
+    defer node1.destroy();
+    var node2 = try Node([]const u8, u32).create(allocator, "n2");
+    defer node2.destroy();
 
-    var node1 = try node.init("n1");
-    var node2 = try node.init("n2");
     try node1.addEdge(node2, 123);
 
-    _ = try node.exportDot(std.io.getStdOut().writer(), .{});
+    _ = try node1.exportDot(std.io.getStdOut().writer(), .{});
 }

@@ -3,11 +3,11 @@
 const std = @import("std");
 
 /// Appends an iter (anything that implements `next()`) to anything that
-/// implements `add()`.
+/// implements `append()`.
 pub fn appendIter(list: anytype, iter: anytype) !usize {
-    var count = 0;
+    var count: usize = 0;
     while (iter.next()) |element| {
-        try list.add(element);
+        try list.append(element);
         count += 1;
     }
     return count;
