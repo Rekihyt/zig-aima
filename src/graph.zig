@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 const helpers = @import("helpers.zig");
 const mode = @import("builtin").mode;
+const dbg = helpers.dbg;
 
 /// `Value` is the type of data to be stored in `Node`s, with copy semantics.
 /// `Weight` is the type of weights or costs between `Node`s. Weights are
@@ -137,8 +138,10 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         ) !AutoHashMap(Edge, void) {
             // Use a 0 size value (void) to use a hashmap as a set, in order
             // to avoid listing edges twice.
-            var edge_set = AutoHashMap(*Edge, void).init(allocator);
-            const node_set = try self.nodePtrs(allocator);
+            var edge_set = AutoHashMap(Edge, void).init(allocator);
+            // Get a view of all nodes
+            var node_set = try self.nodePtrs(allocator);
+            defer node_set.deinit();
             var nodes_iter = node_set.keyIterator();
             while (nodes_iter.next()) |node_ptr| {
                 var edge_iter = node_ptr.*.edges.iterator();
@@ -180,10 +183,12 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             writer: anytype,
             dot_settings: DotSettings,
         ) !void {
-            _ = dot_settings;
+            _ = dot_settings; // TODO
             try writer.writeAll("DiGraph {\n");
 
-            var nodes_iter = (try self.nodes(allocator)).keyIterator();
+            var node_set = try self.nodePtrs(allocator);
+            defer node_set.deinit();
+            var nodes_iter = node_set.keyIterator();
             while (nodes_iter.next()) |node_ptr| {
                 try writer.print(
                     "{s} [];\n",
@@ -215,35 +220,37 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
 // - allocator failure
 // - inside add: allocator succeeds but list append fails
 
-test "graph memory management" {
-    std.testing.log_level = .debug;
-    const allocator = std.testing.allocator;
+// test "graph memory management" {
+//     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).create(allocator, "n1");
-    defer node1.destroy();
+//     var node1 = try Node([]const u8, u32).create(allocator, "n1");
+//     defer node1.destroy();
 
-    var node2 = try Node([]const u8, u32).create(allocator, "n2");
-    defer node2.destroy();
+//     var node2 = try Node([]const u8, u32).create(allocator, "n2");
+//     defer node2.destroy();
 
-    try node1.addEdge(node2, 123);
-}
+//     try node1.addEdge(node2, 123);
+// }
 
-test "iterate over single node" {
-    const allocator = std.testing.allocator;
+// test "iterate over single node" {
+//     std.testing.log_level = .debug;
+//     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).create(allocator, "n1");
-    defer node1.destroy();
+//     var node1 = try Node([]const u8, u32).create(allocator, "n1");
+//     defer node1.destroy();
 
-    // var edge_iter = (try node1.edgeSet(allocator)).keyIterator();
-    // Print nodes' values
-    // while (edge_iter.next()) |edge_ptr| {
-    //     print("({s})--[{}]--({s})\n", .{
-    //         edge_ptr.this.value,
-    //         edge_ptr.weight,
-    //         edge_ptr.that.value,
-    //     });
-    // }
-}
+//     var edges = try node1.edgeSet(allocator);
+//     defer edges.deinit();
+//     var edge_iter = edges.keyIterator();
+//     // Print nodes' values
+//     while (edge_iter.next()) |edge_ptr| {
+//         print("({s})--[{}]--({s})\n", .{
+//             edge_ptr.this.value,
+//             edge_ptr.weight,
+//             edge_ptr.that.value,
+//         });
+//     }
+// }
 
 // test "iterate over edges" {
 //     const allocator = std.testing.allocator;
@@ -270,15 +277,15 @@ test "iterate over single node" {
 //     }
 // }
 
-// test "dot export" {
-//     const allocator = std.testing.allocator;
+test "dot export" {
+    const allocator = std.testing.allocator;
 
-//     var node1 = try Node([]const u8, u32).create(allocator, "n1");
-//     defer node1.destroy();
-//     var node2 = try Node([]const u8, u32).create(allocator, "n2");
-//     defer node2.destroy();
+    var node1 = try Node([]const u8, u32).create(allocator, "n1");
+    defer node1.destroy();
+    var node2 = try Node([]const u8, u32).create(allocator, "n2");
+    defer node2.destroy();
 
-//     try node1.addEdge(node2, 123);
+    try node1.addEdge(node2, 123);
 
-//     _ = try node1.exportDot(allocator, std.io.getStdOut().writer(), .{});
-// }
+    _ = try node1.exportDot(allocator, std.io.getStdOut().writer(), .{});
+}

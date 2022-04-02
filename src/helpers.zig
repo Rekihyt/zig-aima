@@ -12,3 +12,7 @@ pub fn appendIter(list: anytype, iter: anytype) !usize {
     }
     return count;
 }
+
+pub fn dbg(it: anytype) void {
+    std.log.debug("{}\n", .{it});
+}
