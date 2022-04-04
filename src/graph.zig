@@ -50,9 +50,9 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             for (edges) |edge| {
                 // Use of `put` assumes `edges` was passed in with no
                 // duplicates.
-                try node.edges.put(edge);
+                try node.edges.put(edge.that, edge.weight);
                 // Add this node to the adjacent's edges
-                try edge.that.edges.put(node);
+                try edge.that.edges.put(node, edge.weight);
             }
 
             return node;
@@ -89,7 +89,7 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         }
 
         pub const Edge = struct {
-            that: Self,
+            that: *Self,
             weight: Weight,
         };
 
@@ -257,10 +257,10 @@ test "graph memory management" {
     std.testing.log_level = .debug;
     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).add(allocator, "n1", &.{});
+    var node1 = try Node([]const u8, u32).add(allocator, "n1");
     defer node1.destroy();
 
-    var node2 = try Node([]const u8, u32).add(allocator, "n2", &.{});
+    var node2 = try Node([]const u8, u32).add(allocator, "n2");
     defer node2.destroy();
 
     try node1.addEdge(node2, 123);
@@ -269,7 +269,7 @@ test "graph memory management" {
 test "iterate over single node" {
     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).add(allocator, "n1", &.{});
+    var node1 = try Node([]const u8, u32).add(allocator, "n1");
     defer node1.destroy();
 
     var edges = try node1.edgeSet(allocator);
@@ -288,9 +288,9 @@ test "iterate over single node" {
 test "iterate over edges" {
     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).add(allocator, "n1", &.{});
+    var node1 = try Node([]const u8, u32).add(allocator, "n1");
     defer node1.destroy();
-    var node2 = try Node([]const u8, u32).add(allocator, "n2", &.{});
+    var node2 = try Node([]const u8, u32).addWithEdges(allocator, "n2", &.{});
     defer node2.destroy();
 
     try node1.addEdge(node2, 123);
@@ -313,9 +313,9 @@ test "iterate over edges" {
 test "dot export" {
     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).add(allocator, "n1", &.{});
+    var node1 = try Node([]const u8, u32).add(allocator, "n1");
     defer node1.destroy();
-    var node2 = try Node([]const u8, u32).add(allocator, "n2", &.{});
+    var node2 = try Node([]const u8, u32).add(allocator, "n2");
     defer node2.destroy();
 
     try node1.addEdge(node2, 123);
