@@ -7,6 +7,9 @@ const helpers = @import("helpers.zig");
 const mode = @import("builtin").mode;
 const dbg = helpers.dbg;
 
+/// A node in an undirected graph. It holds a value, and a hashmap representing
+/// edges where each entry stores the adjacent node pointer as its key and the
+/// weight as its value.
 /// `Value` is the type of data to be stored in `Node`s, with copy semantics.
 /// `Weight` is the type of weights or costs between `Node`s. Weights are
 /// allocated twice, once in each nodes' edge hashmap.
@@ -14,6 +17,20 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
     return struct {
         pub const Self = @This();
         pub const EdgeMap = AutoHashMap(*Self, Weight);
+
+        pub const Edge = struct {
+            that: *Self,
+            weight: Weight,
+        };
+
+        /// An edges between two node pointers. Isn't used by Nodes to store
+        /// their edges (a hashmap is used instead) but rather when enumerating
+        /// all edges in the graph.
+        pub const FullEdge = struct {
+            this: *Self,
+            that: *Self,
+            weight: Weight,
+        };
 
         allocator: Allocator,
         value: Value,
@@ -40,36 +57,40 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             value: Value,
             edges: []const Edge,
         ) !*Self {
-            var node = try allocator.create(Self);
-            node.* = Self{
-                .allocator = allocator,
-                .value = value,
-                .edges = EdgeMap.init(allocator),
-            };
+            var node = try add(allocator, value);
             // Add edges into the hashmap.
-            for (edges) |edge| {
-                // Use of `put` assumes `edges` was passed in with no
-                // duplicates.
-                try node.edges.put(edge.that, edge.weight);
-                // Add this node to the adjacent's edges
-                try edge.that.edges.put(node, edge.weight);
-            }
+            for (edges) |edge|
+                try node.addEdge(edge.that, edge.weight);
 
             return node;
         }
 
+        /// Puts an edge entry into each node's hashmap.
+        /// If the edge already exists, the weight will be updated.
+        pub fn addEdge(self: *Self, other: *Self, weight: Weight) !void {
+            // Use of `put` assumes `edges` was passed in with no
+            // duplicates, otherwise will overwrite the weight.
+            try self.edges.put(other, weight);
+            // Add this node to the adjacent's edges
+            try other.edges.put(self, weight);
+        }
+
+        // TODO: removeEdge
+
         /// Removes a node and all its references (equivalent to calling
-        /// detach and destroy).
+        /// detach and destroy, but faster).
         /// You probably want this function instead of detach/destroy.
         pub fn remove(self: *Self) void {
             self.detach(); // Remove incoming edges
             self.destroy(); // Free
         }
 
-        // Detach adjacent nodes (erase their references of this node)
+        /// Detach adjacent nodes (erase their references of this node).
+        /// Doesn't release the memory allocated for edges, as this function
+        /// is intended for reusing a node.
         pub fn detach(self: *Self) void {
             var edge_iter = self.edges.keyIterator();
-            // Free each reference to this node in adjacents.
+            // Free incoming references to this node in adjacents.
             while (edge_iter.next()) |adjacent| {
                 var removed = adjacent.*.edges.remove(self);
                 // TODO: check only if debug is enabled, as `removed` should
@@ -80,27 +101,17 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
                     @panic("While freeing this node, an adjacent node's reference to it wasn't removed.");
                 // }
             }
+            // Free outgoing references
+            self.edges.clearRetainingCapacity();
         }
 
         /// Free the memory backing this node, and remove it from the graph.
+        /// Incoming edges will no longer be valid, so this function should
+        /// only be called on detached nodes (ones without edges).
         pub fn destroy(self: *Self) void {
             self.edges.deinit(); // Free this list of edges
             self.allocator.destroy(self); // Free this node
         }
-
-        pub const Edge = struct {
-            that: *Self,
-            weight: Weight,
-        };
-
-        /// An edges between two node pointers. Isn't used by Nodes to store
-        /// their edges (a hashmap is used instead) but rather when enumerating
-        /// all edges in the graph.
-        pub const FullEdge = struct {
-            this: *Self,
-            that: *Self,
-            weight: Weight,
-        };
 
         /// Returns a set of all nodes in this graph.
         /// Caller frees (calls `deinit`).
@@ -172,34 +183,35 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             // Use a 0 size value (void) to use a hashmap as a set, in order
             // to avoid listing edges twice.
             var edge_set = AutoHashMap(FullEdge, void).init(allocator);
+
             // Get a view of all nodes
             var node_set = try self.nodePtrs(allocator);
             defer node_set.deinit();
             var nodes_iter = node_set.keyIterator();
-            while (nodes_iter.next()) |node_ptr| {
-                var edge_iter = node_ptr.*.edges.iterator();
-                while (edge_iter.next()) |edge_entry| {
-                    try edge_set.put(
+
+            while (nodes_iter.next()) |node_ptr| { // For each node
+                var edge_iter = node_ptr.*.edges.iterator(); // Get its edges
+                while (edge_iter.next()) |edge_entry| { // For each edge
+                    if (!edge_set.contains( // If it's reverse isn't in yet
                         FullEdge{
-                            .this = node_ptr.*,
-                            .that = edge_entry.key_ptr.*,
+                            .this = edge_entry.key_ptr.*,
+                            .that = node_ptr.*,
                             .weight = edge_entry.value_ptr.*,
                         },
-                        {}, // The 0 size "value"
-                    );
+                    ))
+                        // Overwrite if the edge exists already
+                        try edge_set.put(
+                            FullEdge{
+                                .this = node_ptr.*,
+                                .that = edge_entry.key_ptr.*,
+                                .weight = edge_entry.value_ptr.*,
+                            },
+                            {}, // The 0 size "value"
+                        );
                 }
             }
             return edge_set;
         }
-
-        /// Allocates twice in both nodes' `edges` hashmaps.
-        /// If the edge already exists, the weight will be updated.
-        pub fn addEdge(self: *Self, other: *Self, weight: Weight) !void {
-            try self.edges.put(other, weight);
-            try other.edges.put(self, weight);
-        }
-
-        // TODO: removeEdge
 
         /// Pass into `exportDot` to configure dot output.
         pub const DotSettings = struct {
@@ -287,13 +299,28 @@ test "iterate over single node" {
 
 test "iterate over edges" {
     const allocator = std.testing.allocator;
-
     var node1 = try Node([]const u8, u32).add(allocator, "n1");
     defer node1.destroy();
     var node2 = try Node([]const u8, u32).addWithEdges(allocator, "n2", &.{});
     defer node2.destroy();
+    var node3 = try Node([]const u8, u32).addWithEdges(allocator, "n3", &.{});
+    defer node3.destroy();
+    const node4 = try Node([]const u8, u32).addWithEdges(
+        allocator,
+        "n4",
+        // Segfaults if an anon struct is used instead
+        &[_]Node([]const u8, u32).Edge{
+            .{ .that = node1, .weight = 41 },
+        },
+    );
+    defer node4.destroy();
 
-    try node1.addEdge(node2, 123);
+    try node1.addEdge(node2, 12);
+    try node3.addEdge(node1, 31);
+    try node2.addEdge(node1, 21); // should update 12 to 21
+    try node2.addEdge(node1, 21); // should be a no op
+    try node2.addEdge(node3, 23);
+
     // Allocate the current edges
     var edges = try node1.edgeSet(allocator);
     defer edges.deinit();
