@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.build.Builder) !void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -15,6 +15,12 @@ pub fn build(b: *std.build.Builder) void {
     exe.linkLibC();
     exe.setTarget(target);
     exe.setBuildMode(mode);
+
+    const options = b.addOptions();
+    exe.addOptions("options", options);
+
+    options.addOption(bool, "valgrind", true);
+
     exe.install();
 
     const run_cmd = exe.run();
@@ -22,6 +28,31 @@ pub fn build(b: *std.build.Builder) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
+
+    const valgrind_exe = b.addExecutable("Aima", "src/main.zig");
+
+    valgrind_exe.linkLibC();
+    valgrind_exe.setTarget(target);
+    valgrind_exe.setBuildMode(mode);
+    valgrind_exe.install();
+    valgrind_exe.valgrind_support = true;
+    valgrind_exe.addOptions("options", options);
+
+    var valgrind_cmd = b.addSystemCommand(&.{
+        "valgrind",
+        // valgrind_exe.getOutputSource().getPath(b),
+        "--leak-check=full",
+        "--track-origins=yes",
+        "--show-leak-kinds=all",
+        "--num-callers=15",
+    });
+    valgrind_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const valgrind_step = b.step("valgrind", "Test with valgrind");
+    valgrind_step.dependOn(&valgrind_cmd.step);
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);

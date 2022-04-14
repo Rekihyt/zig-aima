@@ -6,13 +6,15 @@ const print = std.debug.print;
 const helpers = @import("helpers.zig");
 const mode = @import("builtin").mode;
 const dbg = helpers.dbg;
+const testing = std.testing;
 
 /// A node in an undirected graph. It holds a value, and a hashmap representing
 /// edges where each entry stores the adjacent node pointer as its key and the
 /// weight as its value.
 /// `Value` is the type of data to be stored in `Node`s, with copy semantics.
 /// `Weight` is the type of weights or costs between `Node`s. Weights are
-/// allocated twice, once in each nodes' edge hashmap.
+/// allocated twice, once in each nodes' edge hashmap. An edge that is set
+/// twice between the same two nodes simply has its weight updated.
 pub fn Node(comptime Value: type, comptime Weight: type) type {
     return struct {
         pub const Self = @This();
@@ -75,14 +77,25 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             try other.edges.put(self, weight);
         }
 
-        // TODO: removeEdge
+        /// Removes an edge by deleting the outgoing and all incoming
+        /// references.
+        // Assumes edges are always a valid pair of incoming/outgoing
+        pub fn removeEdge(self: *Self, other: *Self) bool {
+            return self.edges.remove(other) and // Remove outgoing
+                other.edges.remove(self); // Remove incoming
+        }
 
         /// Removes a node and all its references (equivalent to calling
         /// detach and destroy, but faster).
-        /// You probably want this function instead of detach/destroy.
+        /// You probably want this function instead of calling both detach and
+        /// destroy.
         pub fn remove(self: *Self) void {
-            self.detach(); // Remove incoming edges
-            self.destroy(); // Free
+            var edge_iter = self.edges.keyIterator();
+            while (edge_iter.next()) |adjacent|
+                _ = adjacent.*.edges.remove(self);
+
+            self.edges.deinit(); // Free this list of edges
+            self.allocator.destroy(self); // Free this node
         }
 
         /// Detach adjacent nodes (erase their references of this node).
@@ -92,20 +105,17 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             var edge_iter = self.edges.keyIterator();
             // Free incoming references to this node in adjacents.
             while (edge_iter.next()) |adjacent| {
-                var removed = adjacent.*.edges.remove(self);
-                // TODO: check only if debug is enabled, as `removed` should
-                // always be true
-                // comptime {
-                // if (mode == .Debug)
-                if (!removed)
-                    @panic("While freeing this node, an adjacent node's reference to it wasn't removed.");
-                // }
+                const was_removed = adjacent.*.edges.remove(self);
+                comptime {
+                    if (std.builtin.mod == .debugs)
+                        testing.expect(!was_removed);
+                }
             }
             // Free outgoing references
             self.edges.clearRetainingCapacity();
         }
 
-        /// Free the memory backing this node, and remove it from the graph.
+        /// Free the memory backing this node.
         /// Incoming edges will no longer be valid, so this function should
         /// only be called on detached nodes (ones without edges).
         pub fn destroy(self: *Self) void {
@@ -348,4 +358,19 @@ test "dot export" {
     try node1.addEdge(node2, 123);
 
     _ = try node1.exportDot(allocator, std.io.getStdOut().writer(), .{});
+}
+
+test "remove edge" {
+    std.testing.log_level = .debug;
+    const allocator = std.testing.allocator;
+
+    var node1 = try Node([]const u8, u32).add(allocator, "n1");
+    defer node1.destroy();
+
+    var node2 = try Node([]const u8, u32).add(allocator, "n2");
+    defer node2.destroy();
+
+    try node1.addEdge(node2, 123);
+    try testing.expect(node1.removeEdge(node2)); // should be removable
+    try testing.expect(!node1.removeEdge(node2)); // shouldn't be there
 }

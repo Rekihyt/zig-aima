@@ -1,7 +1,11 @@
 const std = @import("std");
+const options = @import("options");
 const String = @import("std").String;
 const Node = @import("graph.zig").Node;
-const allocator = std.heap.c_allocator;
+const allocator = if (options.valgrind)
+    std.heap.c_allocator
+else
+    std.heap.page_allocator;
 
 // This is here to test without testing allocator.
 pub fn main() anyerror!void {
