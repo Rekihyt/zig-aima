@@ -127,7 +127,7 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         /// Caller frees (calls `deinit`).
         // Node pointers must be used because HashMaps don't allow structs
         // containing slices.
-        pub fn nodes(
+        pub fn nodeSet(
             self: *const Self,
             allocator: Allocator,
         ) !AutoHashMap(*const Self, void) {
@@ -157,7 +157,7 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         /// Returns a set of all node pointers in this graph.
         /// If you don't need to mutate any nodes, call `nodes` instead.
         /// Caller frees (calls `deinit`).
-        pub fn nodePtrs(
+        pub fn nodePtrSet(
             self: *Self,
             allocator: Allocator,
         ) !AutoHashMap(*Self, void) {
@@ -195,7 +195,7 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             var edge_set = AutoHashMap(FullEdge, void).init(allocator);
 
             // Get a view of all nodes
-            var node_set = try self.nodePtrs(allocator);
+            var node_set = try self.nodePtrSet(allocator);
             defer node_set.deinit();
             var nodes_iter = node_set.keyIterator();
 
@@ -241,7 +241,7 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             _ = dot_settings; // TODO
             try writer.writeAll("Graph {\n");
 
-            var node_set = try self.nodePtrs(allocator);
+            var node_set = try self.nodePtrSet(allocator);
             defer node_set.deinit();
             var nodes_iter = node_set.keyIterator();
             while (nodes_iter.next()) |node_ptr| {

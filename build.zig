@@ -1,4 +1,5 @@
 const std = @import("std");
+const Step = std.build.Step;
 
 pub fn build(b: *std.build.Builder) !void {
     // Standard target options allows the person running `zig build` to choose
@@ -12,14 +13,14 @@ pub fn build(b: *std.build.Builder) !void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("Aima", "src/main.zig");
+    // TODO: conditionally compile without linking libc ideally without
+    // requiring a flag
     exe.linkLibC();
     exe.setTarget(target);
     exe.setBuildMode(mode);
 
     const options = b.addOptions();
     exe.addOptions("options", options);
-
-    options.addOption(bool, "valgrind", true);
 
     exe.install();
 
@@ -29,7 +30,10 @@ pub fn build(b: *std.build.Builder) !void {
         run_cmd.addArgs(args);
     }
 
-    const valgrind_exe = b.addExecutable("Aima", "src/main.zig");
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
+
+    const valgrind_exe = b.addExecutable("Valgrind-Aima", "src/main.zig");
 
     valgrind_exe.linkLibC();
     valgrind_exe.setTarget(target);
@@ -40,7 +44,7 @@ pub fn build(b: *std.build.Builder) !void {
 
     var valgrind_cmd = b.addSystemCommand(&.{
         "valgrind",
-        // valgrind_exe.getOutputSource().getPath(b),
+        b.getInstallPath(.bin, "Valgrind-Aima"),
         "--leak-check=full",
         "--track-origins=yes",
         "--show-leak-kinds=all",
@@ -52,10 +56,16 @@ pub fn build(b: *std.build.Builder) !void {
     }
 
     const valgrind_step = b.step("valgrind", "Test with valgrind");
+    options.addOption(bool, "valgrind", true);
     valgrind_step.dependOn(&valgrind_cmd.step);
 
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    // valgrind_step.makeFn = struct {
+    //     options: ,
+    //     fn make(self: *Step) !void {
+    //         _ = self;
+    //         @This().options.addOption(bool, "valgrind", true);
+    //     }
+    // }.make;
 
     const exe_tests = b.addTest("src/main.zig");
     exe_tests.setTarget(target);

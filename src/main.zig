@@ -9,6 +9,7 @@ else
 
 // This is here to test without testing allocator.
 pub fn main() anyerror!void {
+    // @compileLog(options.valgrind);
     var node1 = try Node([]const u8, u32).add(allocator, "n1");
     defer node1.destroy();
 
