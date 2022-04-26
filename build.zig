@@ -79,8 +79,13 @@ pub fn build(b: *std.build.Builder) !void {
     graph_tests.setTarget(target);
     graph_tests.setBuildMode(mode);
 
+    const uninformed_tests = b.addTest("src/uninformed.zig");
+    uninformed_tests.setTarget(target);
+    uninformed_tests.setBuildMode(mode);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
     test_step.dependOn(&digraph_tests.step);
     test_step.dependOn(&graph_tests.step);
+    test_step.dependOn(&uninformed_tests.step);
 }

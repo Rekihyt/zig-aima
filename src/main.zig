@@ -6,15 +6,51 @@ const allocator = if (options.valgrind)
     std.heap.c_allocator
 else
     std.heap.page_allocator;
+const testing = std.testing;
+const uninformed = @import("uninformed.zig");
+
+const NodeI32 = struct {
+    edges: std.AutoHashMap(*Node, void),
+    value: i32,
+};
+
+fn testDfs(node: *NodeI32, goal: i32) ?*NodeI32 {
+    var edge_iter = node.edges.keyIterator();
+    return while (edge_iter.next()) |adjacent| {
+        return if (adjacent.*.value == goal) {
+            return adjacent.*;
+        } else testDfs(adjacent.*, goal);
+    } else null;
+}
 
 // This is here to test without testing allocator.
 pub fn main() anyerror!void {
-    // @compileLog(options.valgrind);
-    var node1 = try Node([]const u8, u32).add(allocator, "n1");
-    defer node1.destroy();
+    // const NodeType = comptime Node([]const u8, u8);
+    // Create a weightless graph
+    var initial = try allocator.create(Node);
+    initial.* = Node{
+        .value = 1,
+        .edges = std.AutoHashMap(*Node, void).init(allocator),
+    };
+    var middle = try allocator.create(Node);
+    middle.* = Node{
+        .value = 2,
+        .edges = std.AutoHashMap(*Node, void).init(allocator),
+    };
+    var goal = try allocator.create(Node);
+    goal.* = Node{
+        .value = 3,
+        .edges = std.AutoHashMap(*Node, void).init(allocator),
+    };
+    try middle.edges.put(goal, {});
+    try initial.edges.put(middle, {});
 
-    var node2 = try Node([]const u8, u32).add(allocator, "n2");
-    defer node2.destroy();
-
-    try node1.addEdge(node2, 123);
+    // std.debug.print("{}", .{goal});
+    const result = testDfs(
+        initial,
+        3,
+    );
+    if (result) |found_goal|
+        std.debug.print("Goal! {}\n", .{found_goal.value});
+    try testing.expect(testDfs(initial, 3) != null);
 }
