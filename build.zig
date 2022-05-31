@@ -75,6 +75,10 @@ pub fn build(b: *std.build.Builder) !void {
     digraph_tests.setTarget(target);
     digraph_tests.setBuildMode(mode);
 
+    const uninformed_tests = b.addTest("src/uninformed.zig");
+    uninformed_tests.setTarget(target);
+    uninformed_tests.setBuildMode(mode);
+
     const graph_tests = b.addTest("src/graph.zig");
     graph_tests.setTarget(target);
     graph_tests.setBuildMode(mode);

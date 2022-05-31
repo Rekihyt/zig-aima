@@ -42,7 +42,7 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         edges: EdgeMap,
 
         /// Creates a new node, allocating a copy of Value.
-        pub fn add(allocator: Allocator, value: Value) !*Self {
+        pub fn init(allocator: Allocator, value: Value) !*Self {
             var node = try allocator.create(Self);
             node.* = Self{
                 .allocator = allocator,
@@ -52,14 +52,14 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
             return node;
         }
 
-        /// Same as `add`, but initializes this node's hashmap to the edges
+        /// Same as `init`, but initializes this node's hashmap to the edges
         /// passed in. Duplicate edges will only have the last copy saved.
-        pub fn addWithEdges(
+        pub fn initWithEdges(
             allocator: Allocator,
             value: Value,
             edges: []const Edge,
         ) !*Self {
-            var node = try add(allocator, value);
+            var node = try init(allocator, value);
             // Add edges into the hashmap.
             for (edges) |edge|
                 try node.addEdge(edge.that, edge.weight);
@@ -89,18 +89,16 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
         /// detach and destroy, but faster).
         /// You probably want this function instead of calling both detach and
         /// destroy.
-        pub fn remove(self: *Self) void {
+        pub fn deinit(self: *Self, allocator: Allocator) void {
             var edge_iter = self.edges.keyIterator();
             while (edge_iter.next()) |adjacent|
                 _ = adjacent.*.edges.remove(self);
 
             self.edges.deinit(); // Free this list of edges
-            self.allocator.destroy(self); // Free this node
+            allocator.destroy(self); // Free this node
         }
 
         /// Detach adjacent nodes (erase their references of this node).
-        /// Doesn't release the memory allocated for edges, as this function
-        /// is intended for reusing a node.
         pub fn detach(self: *Self) void {
             var edge_iter = self.edges.keyIterator();
             // Free incoming references to this node in adjacents.
@@ -112,7 +110,9 @@ pub fn Node(comptime Value: type, comptime Weight: type) type {
                 }
             }
             // Free outgoing references
-            self.edges.clearRetainingCapacity();
+            self.edges.clear();
+            // self.edges.clearRetainingCapacity();
+
         }
 
         /// Free the memory backing this node.
@@ -279,11 +279,11 @@ test "graph memory management" {
     std.testing.log_level = .debug;
     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).add(allocator, "n1");
-    defer node1.destroy();
+    var node1 = try Node([]const u8, u32).init(allocator, "n1");
+    defer node1.deinit(allocator);
 
-    var node2 = try Node([]const u8, u32).add(allocator, "n2");
-    defer node2.destroy();
+    var node2 = try Node([]const u8, u32).init(allocator, "n2");
+    defer node2.deinit(allocator);
 
     try node1.addEdge(node2, 123);
 }
@@ -291,8 +291,8 @@ test "graph memory management" {
 test "iterate over single node" {
     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).add(allocator, "n1");
-    defer node1.destroy();
+    var node1 = try Node([]const u8, u32).init(allocator, "n1");
+    defer node1.deinit(allocator);
 
     var edges = try node1.edgeSet(allocator);
     defer edges.deinit();
@@ -309,13 +309,13 @@ test "iterate over single node" {
 
 test "iterate over edges" {
     const allocator = std.testing.allocator;
-    var node1 = try Node([]const u8, u32).add(allocator, "n1");
-    defer node1.destroy();
-    var node2 = try Node([]const u8, u32).addWithEdges(allocator, "n2", &.{});
-    defer node2.destroy();
-    var node3 = try Node([]const u8, u32).addWithEdges(allocator, "n3", &.{});
-    defer node3.destroy();
-    const node4 = try Node([]const u8, u32).addWithEdges(
+    var node1 = try Node([]const u8, u32).init(allocator, "n1");
+    defer node1.deinit(allocator);
+    var node2 = try Node([]const u8, u32).initWithEdges(allocator, "n2", &.{});
+    defer node2.deinit(allocator);
+    var node3 = try Node([]const u8, u32).initWithEdges(allocator, "n3", &.{});
+    defer node3.deinit(allocator);
+    const node4 = try Node([]const u8, u32).initWithEdges(
         allocator,
         "n4",
         // Segfaults if an anon struct is used instead
@@ -323,7 +323,7 @@ test "iterate over edges" {
             .{ .that = node1, .weight = 41 },
         },
     );
-    defer node4.destroy();
+    defer node4.deinit(allocator);
 
     try node1.addEdge(node2, 12);
     try node3.addEdge(node1, 31);
@@ -350,10 +350,10 @@ test "iterate over edges" {
 test "dot export" {
     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).add(allocator, "n1");
-    defer node1.destroy();
-    var node2 = try Node([]const u8, u32).add(allocator, "n2");
-    defer node2.destroy();
+    var node1 = try Node([]const u8, u32).init(allocator, "n1");
+    defer node1.deinit(allocator);
+    var node2 = try Node([]const u8, u32).init(allocator, "n2");
+    defer node2.deinit(allocator);
 
     try node1.addEdge(node2, 123);
 
@@ -364,11 +364,11 @@ test "remove edge" {
     std.testing.log_level = .debug;
     const allocator = std.testing.allocator;
 
-    var node1 = try Node([]const u8, u32).add(allocator, "n1");
-    defer node1.destroy();
+    var node1 = try Node([]const u8, u32).init(allocator, "n1");
+    defer node1.deinit(allocator);
 
-    var node2 = try Node([]const u8, u32).add(allocator, "n2");
-    defer node2.destroy();
+    var node2 = try Node([]const u8, u32).init(allocator, "n2");
+    defer node2.deinit(allocator);
 
     try node1.addEdge(node2, 123);
     try testing.expect(node1.removeEdge(node2)); // should be removable
