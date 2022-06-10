@@ -25,7 +25,6 @@ fn testDfs(node: *NodeI32, goal: i32) ?*NodeI32 {
 
 // This is here to test without testing allocator.
 pub fn main() anyerror!void {
-<<<<<<< HEAD
     // const NodeType = comptime Node([]const u8, u8);
     // Create a weightless graph
     var initial = try allocator.create(Node);
@@ -45,14 +44,6 @@ pub fn main() anyerror!void {
     };
     try middle.edges.put(goal, {});
     try initial.edges.put(middle, {});
-=======
-    // @compileLog(options.valgrind);
-    var node1 = try Node([]const u8, u32).init(allocator, "n1");
-    defer node1.deinit(allocator);
-
-    var node2 = try Node([]const u8, u32).init(allocator, "n2");
-    defer node2.deinit(allocator);
->>>>>>> 363008e (use better allocator api)
 
     // std.debug.print("{}", .{goal});
     const result = testDfs(
